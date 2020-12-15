@@ -47,21 +47,11 @@ public class TCPClient {
         try {
             ReadHandler readHandler = new ReadHandler(socket.getInputStream());
             readHandler.start();
-
-            // 发送接收数据
-//            write(socket);
-//            return new TCPClient(socket,readHandler);
-
-            // 退出操作
-//            readHandler.exit();
+            return new TCPClient(socket, readHandler);
         } catch (Exception e) {
             System.out.println("连接异常");
             CloseUtils.close(socket);
         }
-
-        // 释放资源
-//        socket.close();
-//        System.out.println("客户端已退出～");
         return null;
     }
 
