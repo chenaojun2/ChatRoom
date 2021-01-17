@@ -19,6 +19,7 @@ public class SocketChannelAdapter implements Sender, Receiver, Cloneable {
 
     private IoArgs.IoArgsEventListener receiveIoEventListener;
     private IoArgs.IoArgsEventListener sendIoEventListener;
+    private IoArgs receiveArgsTemp;
 
     public SocketChannelAdapter(SocketChannel channel, IoProvider ioProvider, OnChannelStatusChannelListener listener) throws IOException {
         this.channel = channel;
@@ -29,13 +30,19 @@ public class SocketChannelAdapter implements Sender, Receiver, Cloneable {
     }
 
     @Override
-    public boolean receiveAsync(IoArgs.IoArgsEventListener listener) throws IOException {
+    public void setReceiveListener(IoArgs.IoArgsEventListener listener) {
+        receiveIoEventListener = listener;
+    }
+
+    @Override
+    public boolean receiveAsync(IoArgs args) throws IOException {
         if (isClosed.get()) {
             throw new IOException("Current channel isClosed");
         }
-        receiveIoEventListener = listener;
+        receiveArgsTemp = args;
         return ioProvider.registerInput(channel, inputCallback);
     }
+
 
     @Override
     public boolean sendAsync(IoArgs args, IoArgs.IoArgsEventListener listener) throws IOException {
@@ -64,15 +71,12 @@ public class SocketChannelAdapter implements Sender, Receiver, Cloneable {
             if (isClosed.get()) {
                 return;
             }
-            IoArgs args = new IoArgs();
+            IoArgs args = receiveArgsTemp;
             IoArgs.IoArgsEventListener listenr = SocketChannelAdapter.this.receiveIoEventListener;
-            if (listenr != null) {
-                listenr.onStarted(args);
-            }
-
+            listenr.onStarted(args);
             //具体的读取操作
             try {
-                if (args.read(channel) > 0) {
+                if (args.readFrom(channel) > 0) {
                     //读取完成回调
                     listenr.onCompleted(args);
                 } else {
@@ -91,8 +95,21 @@ public class SocketChannelAdapter implements Sender, Receiver, Cloneable {
             if (isClosed.get()) {
                 return;
             }
-            //TODO
-            sendIoEventListener.onCompleted(null);
+            IoArgs args = getAttach();
+            IoArgs.IoArgsEventListener listener = sendIoEventListener;
+            listener.onStarted(args);
+            //具体的读取操作
+            try {
+                if (args.writeTo(channel) > 0) {
+                    //读取完成回调
+                    listener.onCompleted(args);
+                } else {
+                    throw new IOException("Cannot write any data!!");
+                }
+
+            } catch (IOException ignore) {
+                CloseUtils.close(SocketChannelAdapter.this);
+            }
         }
     };
 
