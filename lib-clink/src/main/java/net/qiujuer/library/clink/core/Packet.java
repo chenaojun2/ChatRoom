@@ -47,4 +47,8 @@ public abstract class Packet<Stream extends Closeable> implements Closeable {
         stream.close();
     }
 
+    public byte[] headerInfo() {
+        return null;
+    }
+
 }

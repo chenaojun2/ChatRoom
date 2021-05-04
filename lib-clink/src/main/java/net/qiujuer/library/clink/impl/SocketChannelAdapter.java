@@ -74,7 +74,9 @@ public class SocketChannelAdapter implements Sender, Receiver, Cloneable {
             IoArgs.IoArgsEventProcessor processor = receiveIoEventProcessor;
             IoArgs args = processor.provideIoArgs();
             try {
-                if (args.readFrom(channel) > 0) {
+                if(args == null) {
+                    processor.onConsumeFailed(null,new IOException("ProviderIoArgs is null."));
+                } else if (args.readFrom(channel) > 0) {
                     //读取完成回调
                     processor.onConsumeCompleted(args);
                 } else {

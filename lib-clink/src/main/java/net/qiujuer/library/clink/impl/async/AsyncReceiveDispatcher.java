@@ -9,18 +9,12 @@ import java.nio.channels.Channels;
 import java.nio.channels.WritableByteChannel;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public class AsyncReceiveDispatcher implements ReceiveDispatcher, IoArgs.IoArgsEventProcessor {
+public class AsyncReceiveDispatcher implements ReceiveDispatcher, IoArgs.IoArgsEventProcessor,AsyncPacketWriter.PacketProvider {
 
     private final AtomicBoolean isClosed = new AtomicBoolean(false);
-
     private final Receiver receiver;
     private final ReceivePacketCallback callback;
-
-    private IoArgs ioArgs = new IoArgs();
-    private ReceivePacket<?,?> packetTemp;
-    private WritableByteChannel packetChannel;
-    private long total;
-    private int position;
+    private final AsyncPacketWriter writer = new AsyncPacketWriter(this);
 
     public AsyncReceiveDispatcher(Receiver receiver, ReceivePacketCallback callback) {
         this.receiver = receiver;
@@ -35,13 +29,12 @@ public class AsyncReceiveDispatcher implements ReceiveDispatcher, IoArgs.IoArgsE
 
     @Override
     public void stop() {
-
     }
 
     @Override
     public void close() throws IOException {
         if (isClosed.compareAndSet(false, true)) {
-            completePacket(false);
+            writer.close();
         }
     }
 
@@ -57,69 +50,10 @@ public class AsyncReceiveDispatcher implements ReceiveDispatcher, IoArgs.IoArgsE
         CloseUtils.close(this);
     }
 
-    /**
-     * 解析数据
-     */
-    private void assemblePacket(IoArgs args) {
-        if (packetTemp == null) {
-            int length = args.readLength();
-
-            byte type = length > 200 ? Packet.TYPE_STREAM_FILE : Packet.TYPE_MEMORY_STRING;
-
-
-
-            packetTemp = callback.onArrivedNewPacket(type,length);
-            packetChannel = Channels.newChannel(packetTemp.open());
-
-            total = length;
-            position = 0;
-        }
-
-
-        try {
-            int count = args.writeTo(packetChannel);
-            position += count;
-            if (position == total) {
-                completePacket(true);
-                packetTemp = null;
-            }
-
-        } catch (IOException e) {
-            e.printStackTrace();
-            completePacket(false);
-        }
-
-    }
-
-    /**
-     * 完成数据接收
-     */
-    private void completePacket(boolean isSucceed) {
-        ReceivePacket packet = this.packetTemp;
-        CloseUtils.close(packet);
-        packetTemp = null;
-        WritableByteChannel channel = this.packetChannel;
-        packetChannel = null;
-        CloseUtils.close(channel);
-        if(packet != null){
-            callback.onReceivePacketComplete(packet);
-        }
-
-    }
 
     @Override
     public IoArgs provideIoArgs() {
-
-        IoArgs args = ioArgs;
-        int receiveSize;
-        if (packetTemp == null) {
-            receiveSize = 4;
-        } else {
-            receiveSize = (int) Math.min(total - position, args.capacity());
-        }
-        //本次接收数据大小
-        args.limit(receiveSize);
-        return args;
+        return writer.takeIoArgs();
     }
 
     @Override
@@ -129,7 +63,20 @@ public class AsyncReceiveDispatcher implements ReceiveDispatcher, IoArgs.IoArgsE
 
     @Override
     public void onConsumeCompleted(IoArgs args) {
-        assemblePacket(args);
+        do{
+            writer.consumeIoArgs(args);
+        }while (args.remained());
         registerReceive();
+    }
+
+    @Override
+    public ReceivePacket takePacket(byte type, long length, byte[] headerInfo) {
+        return callback.onArrivedNewPacket(type,length);
+    }
+
+    @Override
+    public void completedPacket(ReceivePacket packet, boolean isSucceed) {
+        CloseUtils.close(packet);
+        callback.onReceivePacketComplete(packet);
     }
 }
